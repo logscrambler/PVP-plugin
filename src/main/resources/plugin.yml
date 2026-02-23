@@ -4,11 +4,19 @@ main: org.mcmod.pVPpl.PVPpl
 api-version: '1.21'
 commands:
   pvp:
-    description: PVP 게임을 관리합니다.
-    usage: /pvp <start|stop|help>
+    description: PVP game admin command
+    usage: /pvp <start|stop|help|config|info|history|mode|teamsize>
     aliases:
       - pvpgame
+  tab:
+    description: Tab list config command
+    usage: /tab config
+    permission: pvppl.admin
+  top:
+    description: Teleport to surface once per game
+    usage: /top
 permissions:
   pvppl.admin:
-    description: 게임 관리자 권한
+    description: Admin permission for PVP plugin
     default: op
+
