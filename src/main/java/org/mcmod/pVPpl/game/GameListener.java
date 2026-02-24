@@ -20,6 +20,7 @@ import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -52,9 +53,20 @@ public class GameListener implements Listener {
     }
     
     @EventHandler
+    public void onPlayerPortal(PlayerPortalEvent event) {
+        if (gameManager.getCurrentState() != GameManager.GameState.WAITING) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(Component.text("게임 중에는 네더로 이동할 수 없습니다.", NamedTextColor.RED));
+        }
+    }
+    
+    @EventHandler
     public void onCreatureSpawn(CreatureSpawnEvent event) {
         if (gameManager.getCurrentState() != GameManager.GameState.WAITING) {
-            if (event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.NATURAL) {
+            // Block all natural spawns and spawner spawns
+            if (event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.NATURAL || 
+                event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.SPAWNER ||
+                event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.CHUNK_GEN) {
                 event.setCancelled(true);
             }
         }
