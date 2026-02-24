@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -85,39 +86,8 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
             
             // Player commands (no permission needed for team join/list if manual mode)
             if (subCommand.equals("team")) {
-                if (args.length < 2) {
-                    sender.sendMessage("§cUsage: /pvp team <join|list>");
-                    return true;
-                }
-                if (args[1].equalsIgnoreCase("join")) {
-                    if (!(sender instanceof Player)) {
-                        sender.sendMessage("Only players can join teams.");
-                        return true;
-                    }
-                    if (args.length < 3) {
-                        sender.sendMessage("§cUsage: /pvp team join <teamId>");
-                        return true;
-                    }
-                    try {
-                        int teamId = Integer.parseInt(args[2]);
-                        if (gameManager.joinTeam((Player) sender, teamId)) {
-                            sender.sendMessage("§aJoined team " + teamId);
-                        } else {
-                            sender.sendMessage("§cFailed to join team (Full or Random mode).");
-                        }
-                    } catch (NumberFormatException e) {
-                        sender.sendMessage("§cInvalid team ID.");
-                    }
-                    return true;
-                } else if (args[1].equalsIgnoreCase("list")) {
-                    Map<Integer, List<String>> teams = gameManager.getTeamMembers();
-                    sender.sendMessage("§6========== [ Team List ] ==========");
-                    for (Map.Entry<Integer, List<String>> entry : teams.entrySet()) {
-                        sender.sendMessage("§eTeam " + entry.getKey() + ": §f" + String.join(", ", entry.getValue()));
-                    }
-                    sender.sendMessage("§6===================================");
-                    return true;
-                }
+                handleTeamCommand(sender, args);
+                return true;
             }
 
             // Admin commands
@@ -201,6 +171,110 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
         }
         return false;
     }
+    
+    private void handleTeamCommand(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage("§cUsage: /pvp team <create|delete|invite|accept|leave|promote|list>");
+            return;
+        }
+        
+        String action = args[1].toLowerCase();
+        
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("This command can only be used by players.");
+            return;
+        }
+        
+        Player player = (Player) sender;
+        
+        switch (action) {
+            case "create":
+                if (args.length < 3) {
+                    player.sendMessage("§cUsage: /pvp team create <teamName>");
+                    return;
+                }
+                if (gameManager.createTeam(player, args[2])) {
+                    player.sendMessage("§aTeam '" + args[2] + "' created.");
+                } else {
+                    player.sendMessage("§cFailed to create team (already in a team or name exists).");
+                }
+                break;
+            case "delete":
+                if (!player.hasPermission("pvppl.admin")) {
+                    player.sendMessage("You do not have permission.");
+                    return;
+                }
+                if (args.length < 3) {
+                    player.sendMessage("§cUsage: /pvp team delete <teamName>");
+                    return;
+                }
+                if (gameManager.deleteTeam(args[2])) {
+                    player.sendMessage("§aTeam '" + args[2] + "' deleted.");
+                } else {
+                    player.sendMessage("§cTeam not found.");
+                }
+                break;
+            case "invite":
+                if (args.length < 3) {
+                    player.sendMessage("§cUsage: /pvp team invite <player>");
+                    return;
+                }
+                Player target = Bukkit.getPlayer(args[2]);
+                if (target == null) {
+                    player.sendMessage("§cPlayer not found.");
+                    return;
+                }
+                if (gameManager.inviteToTeam(player, target)) {
+                    player.sendMessage("§aInvited " + target.getName() + " to your team.");
+                    target.sendMessage("§aYou have been invited to " + player.getName() + "'s team. Use /pvp team accept to join.");
+                } else {
+                    player.sendMessage("§cFailed to invite player (not leader, team full, or player in team).");
+                }
+                break;
+            case "accept":
+                if (gameManager.acceptInvite(player)) {
+                    player.sendMessage("§aYou have joined the team.");
+                } else {
+                    player.sendMessage("§cNo pending invitation or team is full.");
+                }
+                break;
+            case "leave":
+                if (gameManager.leaveTeam(player)) {
+                    player.sendMessage("§aYou have left the team.");
+                } else {
+                    player.sendMessage("§cYou are not in a team.");
+                }
+                break;
+            case "promote":
+                if (args.length < 3) {
+                    player.sendMessage("§cUsage: /pvp team promote <player>");
+                    return;
+                }
+                Player newLeader = Bukkit.getPlayer(args[2]);
+                if (newLeader == null) {
+                    player.sendMessage("§cPlayer not found.");
+                    return;
+                }
+                if (gameManager.promoteLeader(player, newLeader)) {
+                    player.sendMessage("§a" + newLeader.getName() + " is now the team leader.");
+                    newLeader.sendMessage("§aYou are now the team leader.");
+                } else {
+                    player.sendMessage("§cFailed to promote player (not leader or player not in team).");
+                }
+                break;
+            case "list":
+                Map<String, List<String>> teams = gameManager.getTeamList();
+                sender.sendMessage("§6========== [ Team List ] ==========");
+                for (Map.Entry<String, List<String>> entry : teams.entrySet()) {
+                    sender.sendMessage("§e" + entry.getKey() + ": §f" + String.join(", ", entry.getValue()));
+                }
+                sender.sendMessage("§6===================================");
+                break;
+            default:
+                sender.sendMessage("§cUnknown team command.");
+                break;
+        }
+    }
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§6========== [ PVP Plugin Help ] ==========");
@@ -209,7 +283,7 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
         sender.sendMessage("§e/pvp config §f- Open configuration GUI.");
         sender.sendMessage("§e/pvp info <player> §f- Shows mining info and inventory.");
         sender.sendMessage("§e/pvp history §f- Shows recent game history.");
-        sender.sendMessage("§e/pvp team <join|list> §f- Manage teams.");
+        sender.sendMessage("§e/pvp team <...> §f- Manage teams.");
         sender.sendMessage("§e/tab config §f- Open tab list configuration GUI.");
         sender.sendMessage("§e/pvp help §f- Shows this help message.");
         sender.sendMessage("§6========================================");
@@ -230,7 +304,12 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
                 return completions;
             } else if (args.length == 2 && args[0].equalsIgnoreCase("team")) {
                 List<String> completions = new ArrayList<>();
-                completions.add("join");
+                completions.add("create");
+                completions.add("delete");
+                completions.add("invite");
+                completions.add("accept");
+                completions.add("leave");
+                completions.add("promote");
                 completions.add("list");
                 return completions;
             }

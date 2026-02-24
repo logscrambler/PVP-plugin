@@ -49,9 +49,9 @@ public class GameManager {
     private String configTabFooter;
     private int configYMinLimit;
     private int configYMaxLimit;
-    private PVPGameMode configGameMode; // Renamed enum
+    private PVPGameMode configGameMode;
     private int configTeamSize;
-    private String configTeamAssignment; // "random" or "manual"
+    private String configTeamAssignment;
     
     // Players editing config via chat
     private final Map<UUID, String> editingPlayers = new HashMap<>();
@@ -60,7 +60,8 @@ public class GameManager {
     private final Set<UUID> usedTopCommand = new HashSet<>();
     
     // Team data
-    private final Map<UUID, Integer> playerTeams = new HashMap<>();
+    private final Map<String, Team> teams = new HashMap<>();
+    private final Map<UUID, String> playerTeams = new HashMap<>();
 
     public GameManager(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -117,6 +118,7 @@ public class GameManager {
         // Clear teams only if random assignment or solo mode
         if (configGameMode == PVPGameMode.SOLO || configTeamAssignment.equalsIgnoreCase("random")) {
             playerTeams.clear();
+            teams.clear();
         }
         
         World world = Bukkit.getWorlds().get(0);
@@ -154,7 +156,7 @@ public class GameManager {
             }
             
             // Give starter items
-            player.setLevel(100); // Changed from 50 to 100
+            player.setLevel(100);
             player.getInventory().addItem(new ItemStack(Material.BREAD, 16));
             player.getInventory().addItem(new ItemStack(Material.ENCHANTING_TABLE));
             player.getInventory().addItem(new ItemStack(Material.BOOKSHELF, 64));
@@ -166,9 +168,9 @@ public class GameManager {
             }
             
             if (configGameMode == PVPGameMode.TEAM) {
-                Integer teamId = playerTeams.get(player.getUniqueId());
-                if (teamId != null) {
-                    player.sendMessage(ChatColor.AQUA + "당신은 " + teamId + "팀입니다.");
+                String teamName = playerTeams.get(player.getUniqueId());
+                if (teamName != null) {
+                    player.sendMessage(ChatColor.AQUA + "당신은 " + teamName + "팀입니다.");
                 } else {
                     player.sendMessage(ChatColor.GRAY + "당신은 팀이 없습니다 (깍두기).");
                 }
@@ -184,39 +186,121 @@ public class GameManager {
         
         int teamId = 1;
         int indexInTeam = 0;
+        Team currentTeam = null;
+        
         for (Player player : players) {
-            playerTeams.put(player.getUniqueId(), teamId);
+            if (indexInTeam == 0) {
+                String name = "Team" + teamId;
+                currentTeam = new Team(name, player.getUniqueId());
+                teams.put(name, currentTeam);
+                teamId++;
+            } else {
+                currentTeam.addMember(player.getUniqueId());
+            }
+            
+            playerTeams.put(player.getUniqueId(), currentTeam.getName());
             indexInTeam++;
+            
             if (indexInTeam >= configTeamSize) {
                 indexInTeam = 0;
-                teamId++;
             }
         }
     }
     
-    public boolean joinTeam(Player player, int teamId) {
-        if (configGameMode != PVPGameMode.TEAM) return false;
-        if (configTeamAssignment.equalsIgnoreCase("random")) return false;
+    // Team Management Methods
+    
+    public boolean createTeam(Player player, String teamName) {
+        if (playerTeams.containsKey(player.getUniqueId())) return false; // Already in a team
+        if (teams.containsKey(teamName)) return false; // Team name exists
         
-        // Check team size limit
-        long count = playerTeams.values().stream().filter(id -> id == teamId).count();
-        if (count >= configTeamSize) {
-            return false; // Team full
-        }
-        
-        playerTeams.put(player.getUniqueId(), teamId);
+        Team team = new Team(teamName, player.getUniqueId());
+        teams.put(teamName, team);
+        playerTeams.put(player.getUniqueId(), teamName);
         return true;
     }
     
-    public Map<Integer, List<String>> getTeamMembers() {
-        Map<Integer, List<String>> teams = new HashMap<>();
-        for (Map.Entry<UUID, Integer> entry : playerTeams.entrySet()) {
-            Player p = Bukkit.getPlayer(entry.getKey());
-            if (p != null) {
-                teams.computeIfAbsent(entry.getValue(), k -> new ArrayList<>()).add(p.getName());
+    public boolean deleteTeam(String teamName) {
+        Team team = teams.remove(teamName);
+        if (team != null) {
+            for (UUID member : team.getMembers()) {
+                playerTeams.remove(member);
+                Player p = Bukkit.getPlayer(member);
+                if (p != null) p.sendMessage(ChatColor.RED + "팀이 해체되었습니다.");
+            }
+            return true;
+        }
+        return false;
+    }
+    
+    public boolean inviteToTeam(Player leader, Player target) {
+        String teamName = playerTeams.get(leader.getUniqueId());
+        if (teamName == null) return false;
+        
+        Team team = teams.get(teamName);
+        if (!team.getLeader().equals(leader.getUniqueId())) return false; // Not leader
+        if (team.getSize() >= configTeamSize) return false; // Team full
+        if (playerTeams.containsKey(target.getUniqueId())) return false; // Target already in team
+        
+        team.invite(target.getUniqueId());
+        return true;
+    }
+    
+    public boolean acceptInvite(Player player) {
+        if (playerTeams.containsKey(player.getUniqueId())) return false;
+        
+        for (Team team : teams.values()) {
+            if (team.isInvited(player.getUniqueId())) {
+                if (team.getSize() >= configTeamSize) return false;
+                
+                team.addMember(player.getUniqueId());
+                playerTeams.put(player.getUniqueId(), team.getName());
+                return true;
             }
         }
-        return teams;
+        return false;
+    }
+    
+    public boolean leaveTeam(Player player) {
+        String teamName = playerTeams.remove(player.getUniqueId());
+        if (teamName == null) return false;
+        
+        Team team = teams.get(teamName);
+        team.removeMember(player.getUniqueId());
+        
+        if (team.getSize() == 0) {
+            teams.remove(teamName);
+        } else if (team.getLeader().equals(player.getUniqueId())) {
+            // Assign new leader
+            team.setLeader(team.getMembers().iterator().next());
+            Player newLeader = Bukkit.getPlayer(team.getLeader());
+            if (newLeader != null) newLeader.sendMessage(ChatColor.GREEN + "당신이 새로운 팀장이 되었습니다.");
+        }
+        return true;
+    }
+    
+    public boolean promoteLeader(Player leader, Player target) {
+        String teamName = playerTeams.get(leader.getUniqueId());
+        if (teamName == null) return false;
+        
+        Team team = teams.get(teamName);
+        if (!team.getLeader().equals(leader.getUniqueId())) return false;
+        if (!team.getMembers().contains(target.getUniqueId())) return false;
+        
+        team.setLeader(target.getUniqueId());
+        return true;
+    }
+    
+    public Map<String, List<String>> getTeamList() {
+        Map<String, List<String>> list = new HashMap<>();
+        for (Team team : teams.values()) {
+            List<String> members = new ArrayList<>();
+            for (UUID uuid : team.getMembers()) {
+                Player p = Bukkit.getPlayer(uuid);
+                members.add(p != null ? p.getName() : "Unknown");
+            }
+            list.put(team.getName(), members);
+        }
+        return list;
     }
 
     public void stopGame() {
@@ -227,6 +311,7 @@ public class GameManager {
         // Do not clear teams if manual mode, so they persist for next game unless changed
         if (configGameMode == PVPGameMode.SOLO || configTeamAssignment.equalsIgnoreCase("random")) {
             playerTeams.clear();
+            teams.clear();
         }
         
         World world = Bukkit.getWorlds().get(0);
@@ -396,8 +481,8 @@ public class GameManager {
         obj.getScore("§f본인의 Y 좌표 : §a" + player.getLocation().getBlockY()).setScore(score--);
         
         if (configGameMode == PVPGameMode.TEAM) {
-            Integer teamId = playerTeams.get(player.getUniqueId());
-            String teamStr = teamId != null ? String.valueOf(teamId) : "없음";
+            String teamName = playerTeams.get(player.getUniqueId());
+            String teamStr = teamName != null ? teamName : "없음";
             obj.getScore("§f팀 : §b" + teamStr).setScore(score--);
         }
 
@@ -435,14 +520,14 @@ public class GameManager {
             }
         } else {
             // Team mode check
-            Set<Integer> aliveTeams = new HashSet<>();
+            Set<String> aliveTeams = new HashSet<>();
             for (Player p : alivePlayers) {
-                Integer teamId = playerTeams.get(p.getUniqueId());
-                if (teamId != null) aliveTeams.add(teamId);
+                String teamName = playerTeams.get(p.getUniqueId());
+                if (teamName != null) aliveTeams.add(teamName);
             }
             
             if (aliveTeams.size() == 1) {
-                int winningTeam = aliveTeams.iterator().next();
+                String winningTeam = aliveTeams.iterator().next();
                 endGameByWinnerName("Team " + winningTeam);
             } else if (aliveTeams.isEmpty()) {
                 endGameByWinnerName("none");
@@ -453,8 +538,8 @@ public class GameManager {
     public boolean isSameTeam(Player p1, Player p2) {
         if (configGameMode != PVPGameMode.TEAM) return false;
         
-        Integer t1 = playerTeams.get(p1.getUniqueId());
-        Integer t2 = playerTeams.get(p2.getUniqueId());
+        String t1 = playerTeams.get(p1.getUniqueId());
+        String t2 = playerTeams.get(p2.getUniqueId());
         
         return t1 != null && t2 != null && t1.equals(t2);
     }

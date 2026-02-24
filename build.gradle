@@ -15,12 +15,14 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+    // 1.21.1 버전 API 사용
+    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
 }
 
 tasks {
     runServer {
-        minecraftVersion("1.21")
+        // 테스트 서버 버전도 1.21.1로 변경
+        minecraftVersion("1.21.11")
     }
 }
 
