@@ -80,15 +80,17 @@ public class GameListener implements Listener {
         gameManager.getMiningMonitor().recordMine(player, blockType);
 
         if (gameManager.getCurrentState() == GameManager.GameState.RESOURCE) {
-            if (blockType == Material.IRON_ORE || blockType == Material.DEEPSLATE_IRON_ORE) {
-                event.setDropItems(false);
-                handleFortune(player, event.getBlock().getLocation(), Material.IRON_INGOT);
-            } else if (blockType == Material.GOLD_ORE || blockType == Material.DEEPSLATE_GOLD_ORE) {
-                event.setDropItems(false);
-                handleFortune(player, event.getBlock().getLocation(), Material.GOLD_INGOT);
-            } else if (blockType == Material.COPPER_ORE || blockType == Material.DEEPSLATE_COPPER_ORE) {
-                event.setDropItems(false);
-                handleFortune(player, event.getBlock().getLocation(), Material.COPPER_INGOT);
+            if (gameManager.isAutoSmeltEnabled()) {
+                if (blockType == Material.IRON_ORE || blockType == Material.DEEPSLATE_IRON_ORE) {
+                    event.setDropItems(false);
+                    handleFortune(player, event.getBlock().getLocation(), Material.IRON_INGOT);
+                } else if (blockType == Material.GOLD_ORE || blockType == Material.DEEPSLATE_GOLD_ORE) {
+                    event.setDropItems(false);
+                    handleFortune(player, event.getBlock().getLocation(), Material.GOLD_INGOT);
+                } else if (blockType == Material.COPPER_ORE || blockType == Material.DEEPSLATE_COPPER_ORE) {
+                    event.setDropItems(false);
+                    handleFortune(player, event.getBlock().getLocation(), Material.COPPER_INGOT);
+                }
             }
 
             if (blockType.toString().contains("LEAVES")) {
@@ -168,6 +170,11 @@ public class GameListener implements Listener {
         }
 
         if (gameManager.getCurrentState() == GameManager.GameState.KILL_TIME) {
+            // Set to spectator mode
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                victim.setGameMode(GameMode.SPECTATOR);
+            }, 1L);
+            
             gameManager.handleDeathCheck(victim);
         }
     }
@@ -201,16 +208,15 @@ public class GameListener implements Listener {
             double change = 100.0;
             if (event.getClick() == ClickType.RIGHT) change = -change;
             config.set("border.initial-size", Math.max(100.0, current + change));
-        } else if (slot == 12) { // 자기장 축소 주기
-            int current = config.getInt("border.shrink-interval");
-            int change = 30;
-            if (event.getClick() == ClickType.RIGHT) change = -change;
-            config.set("border.shrink-interval", Math.max(30, current + change));
-        } else if (slot == 13) { // 자기장 축소 양
-            double current = config.getDouble("border.shrink-amount");
-            double change = 50.0;
-            if (event.getClick() == ClickType.RIGHT) change = -change;
-            config.set("border.shrink-amount", Math.max(10.0, current + change));
+        } else if (slot == 12) { // 자기장 축소 시간
+            int current = config.getInt("border.shrink-duration");
+            int change = 1;
+            if (event.getClick() == ClickType.RIGHT) change = -1;
+            config.set("border.shrink-duration", Math.max(1, current + change));
+        } else if (slot == 13) { // 자기장 즉시 축소
+            gameManager.instantShrinkBorder(player);
+            player.closeInventory();
+            return;
         } else if (slot == 14) { // 자기장 데미지
             double current = config.getDouble("border.damage-amount");
             double change = 0.5;
@@ -235,6 +241,9 @@ public class GameListener implements Listener {
             int change = 10;
             if (event.getClick() == ClickType.RIGHT) change = -change;
             config.set("kill-time.y-max-limit", Math.max(0, current + change));
+        } else if (slot == 19) { // 자동 제련
+            boolean current = config.getBoolean("game.auto-smelt", true);
+            config.set("game.auto-smelt", !current);
         } else if (slot == 24) { // 팀 인원수
             int current = config.getInt("team.size", 2);
             int change = 1;

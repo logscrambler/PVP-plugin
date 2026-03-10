@@ -46,7 +46,7 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
         
         this.gameManager = new GameManager(this);
         
-        // Register pvp command
+        // Register commands
         try {
             Objects.requireNonNull(getCommand("pvp"), "Command 'pvp' not found in plugin.yml")
                    .setExecutor(this);
@@ -57,6 +57,9 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
                    .setExecutor(this);
             Objects.requireNonNull(getCommand("tab"))
                    .setTabCompleter(this);
+                   
+            Objects.requireNonNull(getCommand("top"), "Command 'top' not found in plugin.yml")
+                   .setExecutor(this);
         } catch (NullPointerException e) {
             getLogger().severe("Failed to register command: " + e.getMessage());
             getServer().getPluginManager().disablePlugin(this);
@@ -168,6 +171,13 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
                 sender.sendMessage("§cUsage: /tab config");
                 return true;
             }
+        } else if (command.getName().equalsIgnoreCase("top")) {
+            if (sender instanceof Player) {
+                gameManager.useTopCommand((Player) sender);
+            } else {
+                sender.sendMessage("This command can only be used by players.");
+            }
+            return true;
         }
         return false;
     }
@@ -285,6 +295,7 @@ public final class PVPpl extends JavaPlugin implements CommandExecutor, TabCompl
         sender.sendMessage("§e/pvp history §f- Shows recent game history.");
         sender.sendMessage("§e/pvp team <...> §f- Manage teams.");
         sender.sendMessage("§e/tab config §f- Open tab list configuration GUI.");
+        sender.sendMessage("§e/top §f- Teleport to the surface (once per game).");
         sender.sendMessage("§e/pvp help §f- Shows this help message.");
         sender.sendMessage("§6========================================");
     }

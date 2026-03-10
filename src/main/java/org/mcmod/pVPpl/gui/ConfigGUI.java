@@ -40,15 +40,14 @@ public class ConfigGUI {
                 Arrays.asList("§7현재: §e" + config.getDouble("border.initial-size"), 
                         "§a좌클릭: +100", "§c우클릭: -100")));
 
-        // 3. 자기장 축소 주기
-        gui.setItem(12, createItem(Material.COMPASS, "자기장 축소 주기", 
-                Arrays.asList("§7현재: §e" + config.getInt("border.shrink-interval") + "초", 
-                        "§a좌클릭: +30초", "§c우클릭: -30초")));
+        // 3. 자기장 축소 시간
+        gui.setItem(12, createItem(Material.COMPASS, "자기장 축소 시간", 
+                Arrays.asList("§7현재: §e" + config.getInt("border.shrink-duration") + "분", 
+                        "§a좌클릭: +1분", "§c우클릭: -1분")));
 
-        // 4. 자기장 축소 양
-        gui.setItem(13, createItem(Material.FILLED_MAP, "자기장 축소 양", 
-                Arrays.asList("§7현재: §e" + config.getDouble("border.shrink-amount"), 
-                        "§a좌클릭: +50", "§c우클릭: -50")));
+        // 4. 자기장 즉시 축소
+        gui.setItem(13, createItem(Material.TNT, "자기장 즉시 축소", 
+                Arrays.asList("§c클릭 시 자기장을 최종 크기까지", "§c즉시 축소합니다. (킬타임 전용)")));
 
         // 5. 자기장 데미지
         gui.setItem(14, createItem(Material.IRON_SWORD, "자기장 데미지", 
@@ -83,9 +82,15 @@ public class ConfigGUI {
                         
         // 11. 팀 배정 방식
         String currentAssignment = config.getString("team.assignment", "random");
-        gui.setItem(25, createItem(Material.COMMAND_BLOCK, "팀 배정 방식",
+        gui.setItem(25, createItem(Material.COMMAND_BLOCK, "팀 배정 방식", 
                 Arrays.asList("§7현재: §e" + currentAssignment, 
                         "§a클릭하여 변경 (random <-> manual)")));
+                        
+        // 12. 자동 제련
+        boolean autoSmelt = config.getBoolean("game.auto-smelt", true);
+        gui.setItem(19, createItem(Material.FURNACE, "광물 자동 제련", 
+                Arrays.asList("§7현재: §e" + (autoSmelt ? "활성화" : "비활성화"), 
+                        "§a클릭하여 변경")));
 
         player.openInventory(gui);
     }
@@ -93,19 +98,11 @@ public class ConfigGUI {
     public void openTabGUI(Player player) {
         Inventory gui = Bukkit.createInventory(null, 9, Component.text("탭 리스트 설정", NamedTextColor.DARK_GREEN));
         FileConfiguration config = plugin.getConfig();
-        MiniMessage mm = MiniMessage.miniMessage();
-
-        // 1. 탭 리스트 헤더
-        String headerRaw = config.getString("tablist.header", "");
         
-        gui.setItem(2, createItem(Material.NAME_TAG, "탭 리스트 헤더 설정", 
-                Arrays.asList("§7현재 설정값(Raw):", "§f" + headerRaw, 
-                        "§e클릭하여 텍스트 입력", "§b(자동으로 흰색->하늘색 그라데이션 적용)")));
-
-        // 2. 탭 리스트 푸터
+        // 1. 탭 리스트 푸터
         String footerRaw = config.getString("tablist.footer", "");
         
-        gui.setItem(6, createItem(Material.OAK_SIGN, "탭 리스트 푸터 설정", 
+        gui.setItem(4, createItem(Material.OAK_SIGN, "탭 리스트 푸터 설정",
                 Arrays.asList("§7현재 설정값(Raw):", "§f" + footerRaw, 
                         "§e클릭하여 텍스트 입력", "§b(자동으로 흰색->하늘색 그라데이션 적용)")));
 

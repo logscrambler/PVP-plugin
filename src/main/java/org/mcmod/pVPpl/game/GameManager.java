@@ -35,23 +35,21 @@ public class GameManager {
     private GameState currentState = GameState.WAITING;
     private int gameTime = 0;
     private int resourceTimeLeft;
-    private int killTimePhaseTime = 0;
-    private int borderShrinkTimer;
     
     // Config variables
     private int configResourceTime;
     private double configInitialBorderSize;
-    private int configShrinkInterval;
-    private double configShrinkAmount;
+    private double configFinalBorderSize;
+    private int configShrinkDuration;
     private double configDamageAmount;
     private double configDamageBuffer;
-    private String configTabHeader;
-    private String configTabFooter;
+    private String configTabFooter; // Header is now fixed
     private int configYMinLimit;
     private int configYMaxLimit;
     private PVPGameMode configGameMode;
     private int configTeamSize;
     private String configTeamAssignment;
+    private boolean configAutoSmelt;
     
     // Players editing config via chat
     private final Map<UUID, String> editingPlayers = new HashMap<>();
@@ -82,13 +80,13 @@ public class GameManager {
     private void loadConfig() {
         FileConfiguration config = plugin.getConfig();
         configResourceTime = config.getInt("game.resource-time", 1800);
+        configAutoSmelt = config.getBoolean("game.auto-smelt", true);
         configInitialBorderSize = config.getDouble("border.initial-size", 1000.0);
-        configShrinkInterval = config.getInt("border.shrink-interval", 180);
-        configShrinkAmount = config.getDouble("border.shrink-amount", 100.0);
+        configFinalBorderSize = config.getDouble("border.final-size", 1.0);
+        configShrinkDuration = config.getInt("border.shrink-duration", 20) * 60; // minutes to seconds
         configDamageAmount = config.getDouble("border.damage-amount", 1.0);
         configDamageBuffer = config.getDouble("border.damage-buffer", 0.0);
-        configTabHeader = config.getString("tablist.header", "<gold><bold>00PVP");
-        configTabFooter = config.getString("tablist.footer", "<yellow>서버 도메인: <gradient:white:aqua>spoiler.mcv.kr</gradient>");
+        configTabFooter = config.getString("tablist.footer", "<gradient:white:aqua>spoiler.mcv.kr</gradient>");
         configYMinLimit = config.getInt("kill-time.y-min-limit", 30);
         configYMaxLimit = config.getInt("kill-time.y-max-limit", 150);
         
@@ -108,8 +106,6 @@ public class GameManager {
         currentState = GameState.RESOURCE;
         gameTime = 0;
         resourceTimeLeft = configResourceTime;
-        killTimePhaseTime = 0;
-        borderShrinkTimer = configShrinkInterval;
         
         // Reset mining monitor & top command usage
         miningMonitor.reset();
@@ -140,6 +136,7 @@ public class GameManager {
         }
 
         for (Player player : Bukkit.getOnlinePlayers()) {
+            player.setGameMode(GameMode.SURVIVAL);
             player.sendMessage(ChatColor.GREEN + "게임이 시작되었습니다! 자원 시간입니다.");
             player.setHealth(20);
             player.setFoodLevel(20);
@@ -156,15 +153,15 @@ public class GameManager {
             }
             
             // Give starter items
-            player.setLevel(100);
+            player.setLevel(10); // Changed to 10
             player.getInventory().addItem(new ItemStack(Material.BREAD, 16));
             player.getInventory().addItem(new ItemStack(Material.ENCHANTING_TABLE));
             player.getInventory().addItem(new ItemStack(Material.BOOKSHELF, 64));
             player.getInventory().addItem(new ItemStack(Material.LAPIS_LAZULI, 64));
             
-            // Teleport to spawn
+            // Teleport to random location within initial world border
             if (world != null) {
-                player.teleport(world.getSpawnLocation());
+                teleportPlayerRandomlyInBorder(player, world, configInitialBorderSize);
             }
             
             if (configGameMode == PVPGameMode.TEAM) {
@@ -178,6 +175,39 @@ public class GameManager {
                 player.sendMessage("Solo game started.");
             }
         }
+    }
+    
+    private void teleportPlayerRandomlyInBorder(Player player, World world, double borderSize) {
+        Random random = new Random();
+        double halfSize = borderSize / 2.0;
+        
+        int attempts = 0;
+        while (attempts < 100) { // Try up to 100 times to find a safe spot
+            double x = (random.nextDouble() * borderSize) - halfSize;
+            double z = (random.nextDouble() * borderSize) - halfSize;
+            
+            // Ensure chunk is loaded before getting highest block
+            int chunkX = (int) x >> 4;
+            int chunkZ = (int) z >> 4;
+            if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                world.loadChunk(chunkX, chunkZ, true); // Load chunk synchronously
+            }
+
+            int y = world.getHighestBlockYAt((int) x, (int) z);
+            Location spawnLoc = new Location(world, x + 0.5, y + 1, z + 0.5); // +0.5 for center of block, +1 to be above ground
+            
+            // Check if the spawn location is safe (not inside a block, not in lava/water)
+            if (spawnLoc.getBlock().getType().isSolid() || spawnLoc.clone().add(0, 1, 0).getBlock().getType().isSolid()) {
+                attempts++;
+                continue; // Try again if not safe
+            }
+            
+            player.teleport(spawnLoc);
+            return;
+        }
+        // If after 100 attempts, no safe spot found, teleport to world spawn
+        player.teleport(world.getSpawnLocation());
+        player.sendMessage(ChatColor.RED + "안전한 스폰 지점을 찾지 못해 월드 스폰으로 이동되었습니다.");
     }
     
     private void assignTeamsRandomly() {
@@ -206,8 +236,6 @@ public class GameManager {
             }
         }
     }
-    
-    // Team Management Methods
     
     public boolean createTeam(Player player, String teamName) {
         if (playerTeams.containsKey(player.getUniqueId())) return false; // Already in a team
@@ -322,6 +350,7 @@ public class GameManager {
         }
 
         for (Player player : Bukkit.getOnlinePlayers()) {
+            player.setGameMode(GameMode.SURVIVAL);
             player.sendMessage(ChatColor.RED + "게임이 강제 종료되었습니다.");
             player.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard());
             player.getActivePotionEffects().forEach(effect -> player.removePotionEffect(effect.getType()));
@@ -363,10 +392,19 @@ public class GameManager {
         }
         
         World world = player.getWorld();
-        Location surface = world.getHighestBlockAt(player.getLocation()).getLocation().add(0, 1, 0);
-        player.teleport(surface);
-        player.sendMessage(ChatColor.GREEN + "지상으로 이동했습니다.");
-        usedTopCommand.add(player.getUniqueId());
+        Location loc = player.getLocation();
+        
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!world.isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) {
+                player.sendMessage(ChatColor.RED + "청크가 로드되지 않아 이동할 수 없습니다. 잠시 후 다시 시도해주세요.");
+                return;
+            }
+            Location surface = world.getHighestBlockAt(loc).getLocation().add(0, 1, 0);
+            player.teleport(surface);
+            player.sendMessage(ChatColor.GREEN + "지상으로 이동했습니다.");
+            usedTopCommand.add(player.getUniqueId());
+        });
+        
         return true;
     }
 
@@ -386,8 +424,6 @@ public class GameManager {
                     if (resourceTimeLeft <= 0) {
                         startKillTime();
                     }
-                } else if (currentState == GameState.KILL_TIME) {
-                    handleKillTimeLogic();
                 }
             }
         }.runTaskTimer(plugin, 0L, 20L);
@@ -402,8 +438,6 @@ public class GameManager {
 
     private void startKillTime() {
         currentState = GameState.KILL_TIME;
-        killTimePhaseTime = 0;
-        borderShrinkTimer = configShrinkInterval;
 
         Title title = Title.title(
                 Component.text(ChatColor.RED + "킬타임 시작"),
@@ -414,6 +448,7 @@ public class GameManager {
         World world = Bukkit.getWorlds().get(0);
         if (world != null) {
             world.getWorldBorder().setDamageAmount(configDamageAmount);
+            world.getWorldBorder().setSize(configFinalBorderSize, configShrinkDuration);
         }
 
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -425,25 +460,17 @@ public class GameManager {
             }
         }
     }
+    
+    public void instantShrinkBorder(Player sender) {
+        if (currentState != GameState.KILL_TIME) {
+            sender.sendMessage(ChatColor.RED + "킬타임 중에만 자기장을 즉시 축소할 수 있습니다.");
+            return;
+        }
 
-    private void handleKillTimeLogic() {
-        killTimePhaseTime++;
-        borderShrinkTimer--;
-
-        if (borderShrinkTimer <= 0) {
-            borderShrinkTimer = configShrinkInterval; // Reset for next shrink
-
-            World world = Bukkit.getWorlds().get(0);
-            if (world != null) {
-                double currentSize = world.getWorldBorder().getSize();
-                double newSize = currentSize - configShrinkAmount;
-                if (newSize < 20) newSize = 20;
-
-                if (currentSize > newSize) {
-                    world.getWorldBorder().setSize(newSize, 60L); // Shrink over 60 seconds
-                    Bukkit.broadcast(Component.text(ChatColor.RED + "자기장이 줄어듭니다!"));
-                }
-            }
+        World world = Bukkit.getWorlds().get(0);
+        if (world != null) {
+            world.getWorldBorder().setSize(configFinalBorderSize, 1L); // Shrink instantly (1 tick)
+            Bukkit.broadcast(Component.text(ChatColor.RED + "관리자에 의해 자기장이 최종 크기까지 즉시 축소됩니다!"));
         }
     }
 
@@ -465,7 +492,17 @@ public class GameManager {
         if (currentState == GameState.RESOURCE) {
             obj.getScore("§f남은 자원시간 §7> §b" + formatTime(resourceTimeLeft)).setScore(score--);
         } else {
-            obj.getScore("§f자기장 축소 §7> §c" + formatTime(borderShrinkTimer)).setScore(score--);
+            World world = Bukkit.getWorlds().get(0);
+            if (world != null) {
+                double remainingSize = world.getWorldBorder().getSize() - configFinalBorderSize;
+                double totalShrink = configInitialBorderSize - configFinalBorderSize;
+                if (totalShrink > 0) {
+                    double remainingTime = (remainingSize / totalShrink) * configShrinkDuration;
+                    obj.getScore("§f자기장 축소 §7> §c" + formatTime((int)remainingTime)).setScore(score--);
+                } else {
+                    obj.getScore("§f자기장 축소 §7> §c" + formatTime(0)).setScore(score--); // Already shrunk
+                }
+            }
         }
         
         obj.getScore("§1 ").setScore(score--);
@@ -619,6 +656,10 @@ public class GameManager {
     
     public String getTeamAssignment() {
         return configTeamAssignment;
+    }
+
+    public boolean isAutoSmeltEnabled() {
+        return configAutoSmelt;
     }
 
     public enum GameState {
